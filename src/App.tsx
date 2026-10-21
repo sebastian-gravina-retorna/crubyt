@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import Header from './components/Header'
 import Footer from './components/Footer'
@@ -14,6 +14,9 @@ import { Contacto, Eventos, Privacidad } from './pages/misc'
 import { services } from './content/services'
 import { industries } from './content/industries'
 
+// El backend se descarga solo al entrar a /admin
+const AdminApp = lazy(() => import('./admin/AdminApp'))
+
 function ScrollManager() {
   const { pathname, hash } = useLocation()
   useEffect(() => {
@@ -27,6 +30,15 @@ function ScrollManager() {
 }
 
 export default function App() {
+  const { pathname } = useLocation()
+  if (pathname === '/admin' || pathname.startsWith('/admin/'))
+    return (
+      <Suspense fallback={<div className="min-h-screen bg-mist" />}>
+        <Routes>
+          <Route path="/admin/*" element={<AdminApp />} />
+        </Routes>
+      </Suspense>
+    )
   return (
     <>
       <ScrollManager />

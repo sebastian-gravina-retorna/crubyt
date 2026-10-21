@@ -4,6 +4,8 @@
 //   CONTACT_TO      (opcional)     destinatario(s), separados por coma. Default: info@crubyt.com
 //   CONTACT_FROM    (opcional)     remitente de un dominio verificado en Resend.
 //                                  Default: "Crubyt Web <onboarding@resend.dev>" (solo para pruebas)
+//   SUPABASE_SECRET_KEY (opcional) secret key de Supabase (sb_secret_… o service_role) para guardar
+//                                  el contacto en la tabla `contacts`. URL: SUPABASE_URL o VITE_SUPABASE_URL.
 
 const LABELS: Record<string, string> = {
   nombres: 'Nombres',
@@ -23,9 +25,44 @@ const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 const json = (status: number, body: object) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 
+async function saveContact(data: Record<string, string>, emailSent: boolean): Promise<string | null> {
+  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+  const key = process.env.SUPABASE_SECRET_KEY
+  if (!url || !key) return null
+  const headers: Record<string, string> = {
+    apikey: key,
+    'Content-Type': 'application/json',
+    Prefer: 'return=representation',
+  }
+  // Las claves legacy (JWT service_role) también requieren Authorization; las sb_secret_ no.
+  if (!key.startsWith('sb_')) headers.Authorization = `Bearer ${key}`
+  const res = await fetch(`${url.replace(/\/$/, '')}/rest/v1/contacts?select=id`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ ...data, email_sent: emailSent }),
+  })
+  if (!res.ok) {
+    console.error('[contact] Supabase error', res.status, await res.text())
+    return null
+  }
+  const rows = (await res.json()) as { id: string }[]
+  return rows[0]?.id ?? null
+}
+
+async function markEmailSent(id: string) {
+  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+  const key = process.env.SUPABASE_SECRET_KEY!
+  const headers: Record<string, string> = { apikey: key, 'Content-Type': 'application/json' }
+  if (!key.startsWith('sb_')) headers.Authorization = `Bearer ${key}`
+  await fetch(`${url!.replace(/\/$/, '')}/rest/v1/contacts?id=eq.${id}`, {
+    method: 'PATCH',
+    headers,
+    body: JSON.stringify({ email_sent: true }),
+  }).catch(() => {})
+}
+
 export async function POST(request: Request): Promise<Response> {
   const apiKey = process.env.RESEND_API_KEY
-  if (!apiKey) return json(500, { ok: false, error: 'RESEND_API_KEY no configurada' })
 
   let raw: Record<string, unknown>
   try {
@@ -70,22 +107,29 @@ export async function POST(request: Request): Promise<Response> {
   const to = (process.env.CONTACT_TO || 'info@crubyt.com').split(',').map((s) => s.trim()).filter(Boolean)
   const from = process.env.CONTACT_FROM || 'Crubyt Web <onboarding@resend.dev>'
 
-  const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      from,
-      to,
-      reply_to: email,
-      subject: `Nuevo contacto web: ${fullName}${data.empresa ? ` (${data.empresa})` : ''}`,
-      html,
-      text,
-    }),
-  })
+  // 1) Guardar primero en Supabase: el lead no se pierde aunque falle el email.
+  const contactId = await saveContact(data, false)
 
-  if (!res.ok) {
-    console.error('[contact] Resend error', res.status, await res.text())
-    return json(502, { ok: false, error: 'No se pudo enviar el email' })
+  // 2) Notificar por email con Resend
+  let emailOk = false
+  if (apiKey) {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from,
+        to,
+        reply_to: email,
+        subject: `Nuevo contacto web: ${fullName}${data.empresa ? ` (${data.empresa})` : ''}`,
+        html,
+        text,
+      }),
+    })
+    emailOk = res.ok
+    if (!res.ok) console.error('[contact] Resend error', res.status, await res.text())
   }
+  if (emailOk && contactId) await markEmailSent(contactId)
+
+  if (!emailOk && !contactId) return json(502, { ok: false, error: 'No se pudo registrar el contacto' })
   return json(200, { ok: true })
 }

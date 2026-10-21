@@ -23,7 +23,8 @@ src/
   pages/        Home, ServicePage (plantilla de los 4 servicios), IndustryPage (4 industrias), Nosotros,
                 Cómo trabajamos, Blog/Casos, Post, Eventos, Contacto, Privacidad, 404
   lib/          supabase.ts, posts.ts (Supabase con fallback local), forms.ts (newsletter + contacto)
-api/            contact.ts — Vercel Function que envía el formulario con Resend
+api/            contact.ts — Vercel Function: guarda el contacto en Supabase y avisa por email con Resend
+src/admin/      Backend /admin: login Google, contactos, usuarios y accesos
 public/assets/  Logos e imágenes optimizados a WebP (brand, clients, partners, badges, team, photos, cases)
 supabase/       migrations/ (tablas + RLS) y seed.sql (posts migrados de WordPress)
 ```
@@ -66,6 +67,38 @@ Variables en Vercel (Settings → Environment Variables), **sin** prefijo `VITE_
 | `CONTACT_FROM` | No | Remitente, ej. `Crubyt Web <web@crubyt.com>`. Requiere el dominio verificado en Resend → Domains. Mientras no esté verificado se usa `onboarding@resend.dev`, que solo entrega al email dueño de la cuenta de Resend |
 
 El email llega con `reply_to` del visitante, así que se responde directo desde el correo. Para probar en local: `npx vercel dev` (el `npm run dev` de Vite no ejecuta funciones).
+
+## Backend `/admin` (Google SSO + contactos)
+
+Panel interno para el equipo: login con Google restringido a `@crubyt.com`, base de contactos del formulario y gestión de accesos. Se carga solo al entrar a `/admin` (no pesa en el sitio público) y no se indexa.
+
+**Seguridad en capas**
+
+1. Google OAuth configurado como app **Internal** del Workspace de Crubyt: solo cuentas de la organización pueden autenticarse.
+2. Trigger en la base (`handle_new_user`): rechaza el alta de cualquier email que no termine en `@crubyt.com`.
+3. RLS: quien entra queda como *pendiente*; solo ve contactos si un admin le activa **Ver contactos**. Los contactos solo se insertan desde `api/contact.ts` con la secret key.
+
+**Roles**
+
+| Rol | Puede |
+| --- | --- |
+| Admin | Ver/editar/eliminar contactos, autorizar usuarios, nombrar admins |
+| Miembro con acceso | Ver contactos, cambiar estado y notas, exportar CSV |
+| Miembro pendiente | Solo ve el aviso "acceso pendiente" |
+
+Los admins iniciales se definen en la tabla `admin_bootstrap` (la migración incluye `sebastian.gravina@crubyt.com`).
+
+**Setup (una vez)**
+
+1. Supabase → SQL Editor: ejecutar `supabase/migrations/20261022000000_admin_contacts.sql`.
+2. Google Cloud Console (con la cuenta de Crubyt): crear proyecto → *Google Auth Platform / OAuth consent screen* → User type **Internal** → *Clients* → *Create client* tipo **Web application** con:
+   - Authorized JavaScript origins: `https://<dominio-del-sitio>`
+   - Authorized redirect URI: `https://<project-ref>.supabase.co/auth/v1/callback`
+3. Supabase → Authentication → Sign In / Providers → **Google**: habilitar y pegar Client ID y Client Secret.
+4. Supabase → Authentication → URL Configuration: *Site URL* = dominio del sitio; *Redirect URLs* = `https://<dominio>/admin` (y la URL de Vercel si se usa).
+5. Vercel → Environment Variables: `SUPABASE_SECRET_KEY` = secret key de Supabase (`sb_secret_…`), sin prefijo `VITE_`. Redeploy.
+
+**HubSpot (futuro)**: la tabla `contacts` ya tiene `hubspot_contact_id` y `hubspot_synced_at`, con un índice para los pendientes de sincronizar. Una función programada (Vercel Cron o Supabase Edge Function) puede tomar los contactos con `hubspot_synced_at is null`, crearlos en HubSpot y marcar el ID.
 
 ## Deploy
 
