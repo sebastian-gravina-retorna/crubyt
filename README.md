@@ -23,7 +23,7 @@ src/
   pages/        Home, ServicePage (plantilla de los 4 servicios), IndustryPage (4 industrias), Nosotros,
                 Cómo trabajamos, Blog/Casos, Post, Eventos, Contacto, Privacidad, 404
   lib/          supabase.ts, posts.ts (Supabase con fallback local), forms.ts (newsletter + contacto)
-api/            contact.ts — Vercel Function: guarda el contacto en Supabase y avisa por email con Resend
+api/            contact.ts (contacto → Supabase + Resend), subscribe.ts (newsletter), _antispam.ts
 src/admin/      Backend /admin: login Google, contactos, usuarios y accesos
 public/assets/  Logos e imágenes optimizados a WebP (brand, clients, partners, badges, team, photos, cases)
 supabase/       migrations/ (tablas + RLS) y seed.sql (posts migrados de WordPress)
@@ -67,6 +67,27 @@ Variables en Vercel (Settings → Environment Variables), **sin** prefijo `VITE_
 | `CONTACT_FROM` | No | Remitente, ej. `Crubyt Web <web@crubyt.com>`. Requiere el dominio verificado en Resend → Domains. Mientras no esté verificado se usa `onboarding@resend.dev`, que solo entrega al email dueño de la cuenta de Resend |
 
 El email llega con `reply_to` del visitante, así que se responde directo desde el correo. Para probar en local: `npx vercel dev` (el `npm run dev` de Vite no ejecuta funciones).
+
+## Anti-spam
+
+Los formularios públicos (contacto y newsletter) pasan por Vercel Functions (`api/contact.ts`, `api/subscribe.ts`), que aplican en `api/_antispam.ts`:
+
+1. **Cloudflare Turnstile**: verificación invisible para personas (solo muestra un desafío si sospecha). Se carga recién cuando el usuario toca el formulario.
+2. **Honeypot**: campo oculto que solo completan los bots.
+3. **Tiempo mínimo**: envíos en menos de 3 s se descartan.
+4. **Contenido**: más de 2 links, alfabetos cirílico/árabe/CJK o palabras típicas de spam (SEO, casino, crypto…) se descartan.
+5. **Límite por IP**: máx. 3 envíos por hora por IP (se guarda un hash, no la IP).
+
+A los bots detectados por 2–4 se les responde "ok" sin guardar nada. El newsletter ya no acepta inserts directos con la clave pública.
+
+**Setup Turnstile**: Cloudflare → Turnstile → *Add widget* (gratis, no requiere tener el DNS en Cloudflare) → hostnames: el dominio de Vercel y `crubyt.com` → modo **Managed**. Variables en Vercel:
+
+| Variable | Valor |
+| --- | --- |
+| `VITE_TURNSTILE_SITE_KEY` | Site key (pública) |
+| `TURNSTILE_SECRET_KEY` | Secret key (sin `VITE_`) |
+
+Sin estas variables el sitio funciona igual, con las defensas 2–5. Para probar en local se pueden usar las claves de test de Cloudflare (`1x00000000000000000000AA` / `1x0000000000000000000000000000000AA`).
 
 ## Backend `/admin` (Google SSO + contactos)
 

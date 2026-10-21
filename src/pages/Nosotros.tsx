@@ -72,7 +72,7 @@ export default function Nosotros() {
             <Reveal key={m.name} delay={(i % 6) * 0.05}>
               <figure className="group">
                 <div className="aspect-[3/4] overflow-hidden rounded-3xl bg-mist">
-                  <img src={m.photo} alt={m.name} className="h-full w-full object-cover grayscale transition duration-500 group-hover:scale-105 group-hover:grayscale-0" loading="lazy" />
+                  <img src={m.photo} alt={m.name} className="h-full w-full object-cover transition duration-500 group-hover:scale-105" loading="lazy" />
                 </div>
                 <figcaption className="mt-4">
                   <p className="font-display font-bold text-ink">{m.name}</p>

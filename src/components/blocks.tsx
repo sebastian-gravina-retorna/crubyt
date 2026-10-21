@@ -1,8 +1,9 @@
-import { useState, type FormEvent, type ReactNode } from 'react'
+import { useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowUpRight, Check, CheckCircle2, XCircle } from 'lucide-react'
 import { clients } from '../content/site'
 import { sendContact } from '../lib/forms'
+import Turnstile, { TURNSTILE_SITE_KEY } from './Turnstile'
 import type { Post } from '../lib/posts'
 import { Container, Eyebrow, GlowBg, Heading, Reveal, cx } from './ui'
 
@@ -11,17 +12,30 @@ const input =
 
 export function ContactForm({ variant = 'default' }: { variant?: 'default' | 'industry' }) {
   const [state, setState] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle')
+  const [error, setError] = useState<string | null>(null)
+  const [token, setToken] = useState<string | null>(null)
+  const [resetKey, setResetKey] = useState(0)
+  const [tsFailed, setTsFailed] = useState(false)
+  const [active, setActive] = useState(false) // Turnstile se carga al interactuar con el formulario
+  const startedAt = useRef(Date.now())
+  const needsToken = !!TURNSTILE_SITE_KEY
+
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
+    if (needsToken && !token) return setActive(true)
     const data = Object.fromEntries(new FormData(e.currentTarget).entries()) as Record<string, string>
-    if (data.website) return // honeypot
-    delete data.website
     setState('loading')
+    setError(null)
     try {
-      setState((await sendContact(data)) ? 'ok' : 'error')
+      const r = await sendContact(data, { turnstile_token: token, elapsed_ms: Date.now() - startedAt.current })
+      if (r.ok) return setState('ok')
+      setError(r.error)
+      setState('error')
     } catch {
+      setError('No pudimos enviar tu mensaje.')
       setState('error')
     }
+    setResetKey((k) => k + 1) // el token de Turnstile es de un solo uso
   }
   if (state === 'ok')
     return (
@@ -32,7 +46,7 @@ export function ContactForm({ variant = 'default' }: { variant?: 'default' | 'in
       </div>
     )
   return (
-    <form onSubmit={submit} className="grid gap-4 rounded-3xl bg-white p-6 shadow-2xl shadow-ink/20 sm:grid-cols-2 sm:p-8">
+    <form onSubmit={submit} onFocusCapture={() => setActive(true)} className="relative grid gap-4 rounded-3xl bg-white p-6 shadow-2xl shadow-ink/20 sm:grid-cols-2 sm:p-8">
       <input name="nombres" required placeholder="Nombres" className={input} />
       <input name="apellidos" required placeholder="Apellidos" className={input} />
       <input name="telefono" type="tel" placeholder="Número telefónico" className={input} />
@@ -49,15 +63,20 @@ export function ContactForm({ variant = 'default' }: { variant?: 'default' | 'in
         </>
       )}
       <textarea name="mensaje" rows={4} placeholder="Déjanos tu mensaje" className={cx(input, 'sm:col-span-2')} />
-      <input name="website" tabIndex={-1} autoComplete="off" className="hidden" aria-hidden />
+      <input name="website" tabIndex={-1} autoComplete="off" className="absolute -left-[9999px] h-px w-px opacity-0" aria-hidden />
       <label className="flex items-start gap-3 text-xs text-ink/60 sm:col-span-2">
         <input type="checkbox" required name="privacidad" value="acepto" className="mt-0.5 h-4 w-4 accent-brand" />
         <span>Acepto la <Link to="/privacidad" className="underline hover:text-brand">política de privacidad y usos de datos</Link></span>
       </label>
-      <button disabled={state === 'loading'} className="rounded-full bg-brand px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-brand/25 transition hover:bg-brand-600 disabled:opacity-60 sm:col-span-2">
-        {state === 'loading' ? 'Enviando…' : 'Contacta con nuestro equipo'}
+      {active && <div className="sm:col-span-2"><Turnstile onToken={setToken} onError={() => setTsFailed(true)} resetKey={resetKey} /></div>}
+      <button
+        disabled={state === 'loading' || (needsToken && active && !token)}
+        className="rounded-full bg-brand px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-brand/25 transition hover:bg-brand-600 disabled:opacity-60 sm:col-span-2"
+      >
+        {state === 'loading' ? 'Enviando…' : needsToken && active && !token ? 'Verificando…' : 'Contacta con nuestro equipo'}
       </button>
-      {state === 'error' && <p className="text-sm text-brand sm:col-span-2">No pudimos enviar tu mensaje. Escríbenos a info@crubyt.com.</p>}
+      {tsFailed && !token && <p className="text-sm text-ink/60 sm:col-span-2">No pudimos cargar la verificación anti-spam (¿un bloqueador de anuncios?). Desactívalo y recarga, o escríbenos a info@crubyt.com.</p>}
+      {state === 'error' && <p className="text-sm text-brand sm:col-span-2">{error} Si el problema sigue, escríbenos a info@crubyt.com.</p>}
     </form>
   )
 }
@@ -86,7 +105,7 @@ export function ClientsGrid() {
     <div className="grid grid-cols-2 gap-px overflow-hidden rounded-3xl border border-ink/5 bg-ink/5 sm:grid-cols-3 lg:grid-cols-6">
       {clients.map((c) => (
         <div key={c.name} className="flex items-center justify-center bg-white p-6 transition hover:bg-mist">
-          <img src={c.logo} alt={c.name} title={c.name} className="h-16 w-auto object-contain opacity-70 grayscale transition hover:opacity-100 hover:grayscale-0" loading="lazy" />
+          <img src={c.logo} alt={c.name} title={c.name} className="h-16 w-auto object-contain opacity-80 transition hover:opacity-100" loading="lazy" />
         </div>
       ))}
     </div>
@@ -155,7 +174,7 @@ export function PageHero({ eyebrow, title, lead, children, image, contain }: { e
         {image && (
           <Reveal delay={0.15} className="relative">
             <div className={cx('absolute -inset-4 bg-brand-gradient opacity-30 blur-2xl', contain ? 'rounded-full' : 'rounded-[2.5rem]')} />
-            <img src={image} alt="" className={cx('relative w-full', contain ? 'mx-auto max-h-[420px] object-contain' : 'aspect-[4/3] rounded-[2rem] border border-white/10 object-cover')} />
+            <img src={image} alt="" className={cx('relative w-full', contain ? 'mx-auto max-h-[380px] object-contain' : 'aspect-[4/3] rounded-[2rem] border border-white/10 object-cover')} />
           </Reveal>
         )}
       </Container>

@@ -1,11 +1,12 @@
-// Vercel Function: recibe el formulario de contacto y lo envía por email con Resend.
+// Vercel Function: recibe el formulario de contacto, filtra spam, lo guarda en Supabase y avisa por email con Resend.
 // Variables de entorno (Vercel → Settings → Environment Variables), SIN prefijo VITE_:
-//   RESEND_API_KEY  (obligatoria)  clave de Resend
-//   CONTACT_TO      (opcional)     destinatario(s), separados por coma. Default: info@crubyt.com
-//   CONTACT_FROM    (opcional)     remitente de un dominio verificado en Resend.
-//                                  Default: "Crubyt Web <onboarding@resend.dev>" (solo para pruebas)
-//   SUPABASE_SECRET_KEY (opcional) secret key de Supabase (sb_secret_… o service_role) para guardar
-//                                  el contacto en la tabla `contacts`. URL: SUPABASE_URL o VITE_SUPABASE_URL.
+//   RESEND_API_KEY        clave de Resend (aviso por email)
+//   CONTACT_TO            destinatario(s), separados por coma. Default: info@crubyt.com
+//   CONTACT_FROM          remitente de un dominio verificado en Resend. Default: onboarding@resend.dev (solo pruebas)
+//   SUPABASE_SECRET_KEY   secret key de Supabase para guardar en `contacts` (URL: SUPABASE_URL o VITE_SUPABASE_URL)
+//   TURNSTILE_SECRET_KEY  secret key de Cloudflare Turnstile (anti-spam)
+
+import { basicChecks, clientIp, contentChecks, ipHash, rateLimit, supabaseRest, verifyTurnstile } from './_antispam.js'
 
 const LABELS: Record<string, string> = {
   nombres: 'Nombres',
@@ -22,24 +23,15 @@ const LABELS: Record<string, string> = {
 
 const MAX = 5000
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
-const json = (status: number, body: object) =>
-  new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+const json = (status: number, body: object) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 
-async function saveContact(data: Record<string, string>, emailSent: boolean): Promise<string | null> {
-  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
-  const key = process.env.SUPABASE_SECRET_KEY
-  if (!url || !key) return null
-  const headers: Record<string, string> = {
-    apikey: key,
-    'Content-Type': 'application/json',
-    Prefer: 'return=representation',
-  }
-  // Las claves legacy (JWT service_role) también requieren Authorization; las sb_secret_ no.
-  if (!key.startsWith('sb_')) headers.Authorization = `Bearer ${key}`
-  const res = await fetch(`${url.replace(/\/$/, '')}/rest/v1/contacts?select=id`, {
+async function saveContact(data: Record<string, string>, hash: string): Promise<string | null> {
+  const sb = supabaseRest()
+  if (!sb) return null
+  const res = await fetch(`${sb.url}/contacts?select=id`, {
     method: 'POST',
-    headers,
-    body: JSON.stringify({ ...data, email_sent: emailSent }),
+    headers: { ...sb.headers, Prefer: 'return=representation' },
+    body: JSON.stringify({ ...data, ip_hash: hash, email_sent: false }),
   })
   if (!res.ok) {
     console.error('[contact] Supabase error', res.status, await res.text())
@@ -50,20 +42,12 @@ async function saveContact(data: Record<string, string>, emailSent: boolean): Pr
 }
 
 async function markEmailSent(id: string) {
-  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
-  const key = process.env.SUPABASE_SECRET_KEY!
-  const headers: Record<string, string> = { apikey: key, 'Content-Type': 'application/json' }
-  if (!key.startsWith('sb_')) headers.Authorization = `Bearer ${key}`
-  await fetch(`${url!.replace(/\/$/, '')}/rest/v1/contacts?id=eq.${id}`, {
-    method: 'PATCH',
-    headers,
-    body: JSON.stringify({ email_sent: true }),
-  }).catch(() => {})
+  const sb = supabaseRest()
+  if (!sb) return
+  await fetch(`${sb.url}/contacts?id=eq.${id}`, { method: 'PATCH', headers: sb.headers, body: JSON.stringify({ email_sent: true }) }).catch(() => {})
 }
 
 export async function POST(request: Request): Promise<Response> {
-  const apiKey = process.env.RESEND_API_KEY
-
   let raw: Record<string, unknown>
   try {
     raw = await request.json()
@@ -71,19 +55,32 @@ export async function POST(request: Request): Promise<Response> {
     return json(400, { ok: false, error: 'JSON inválido' })
   }
 
-  // Honeypot anti-spam
-  if (raw.website) return json(200, { ok: true })
+  // Anti-spam: honeypot + tiempo mínimo (respuesta silenciosa a bots)
+  const basic = basicChecks(raw)
+  if (!basic.ok) return json(200, { ok: true })
 
   const data: Record<string, string> = {}
   for (const key of Object.keys(LABELS)) {
     const v = raw[key]
     if (typeof v === 'string' && v.trim()) data[key] = v.trim().slice(0, MAX)
   }
-
   const email = data.email ?? ''
   if (!data.nombres || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || email.length > 254) {
     return json(400, { ok: false, error: 'Nombre y email válidos son obligatorios' })
   }
+
+  // Anti-spam: Turnstile, contenido y límite por IP
+  const ip = clientIp(request)
+  const hash = ipHash(ip)
+  const human = await verifyTurnstile(raw.turnstile_token, ip)
+  if (!human.ok) return json(human.status, { ok: false, error: human.error })
+  const content = contentChecks(data)
+  if (!content.ok) {
+    console.warn('[contact] descartado por contenido', email)
+    return json(200, { ok: true })
+  }
+  const limit = await rateLimit('contacts', hash, 3, 60)
+  if (!limit.ok) return json(limit.status, { ok: false, error: limit.error })
 
   const fullName = [data.nombres, data.apellidos].filter(Boolean).join(' ')
   const rows = Object.entries(data)
@@ -93,7 +90,6 @@ export async function POST(request: Request): Promise<Response> {
         `<td style="padding:8px 12px;color:#00021c;font-size:14px;white-space:pre-wrap">${esc(v)}</td></tr>`,
     )
     .join('')
-
   const html = `
   <div style="font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto">
     <div style="background:#00021c;padding:20px 24px;border-radius:12px 12px 0 0">
@@ -104,21 +100,19 @@ export async function POST(request: Request): Promise<Response> {
   </div>`
   const text = Object.entries(data).map(([k, v]) => `${LABELS[k]}: ${v}`).join('\n')
 
-  const to = (process.env.CONTACT_TO || 'info@crubyt.com').split(',').map((s) => s.trim()).filter(Boolean)
-  const from = process.env.CONTACT_FROM || 'Crubyt Web <onboarding@resend.dev>'
-
   // 1) Guardar primero en Supabase: el lead no se pierde aunque falle el email.
-  const contactId = await saveContact(data, false)
+  const contactId = await saveContact(data, hash)
 
-  // 2) Notificar por email con Resend
+  // 2) Avisar por email con Resend
   let emailOk = false
+  const apiKey = process.env.RESEND_API_KEY
   if (apiKey) {
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from,
-        to,
+        from: process.env.CONTACT_FROM || 'Crubyt Web <onboarding@resend.dev>',
+        to: (process.env.CONTACT_TO || 'info@crubyt.com').split(',').map((s) => s.trim()).filter(Boolean),
         reply_to: email,
         subject: `Nuevo contacto web: ${fullName}${data.empresa ? ` (${data.empresa})` : ''}`,
         html,

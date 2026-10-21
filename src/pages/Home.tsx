@@ -44,7 +44,7 @@ function Hero() {
         </div>
         <motion.div className="relative hidden lg:col-span-5 lg:block" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.8, delay: 0.2 }}>
           <div className="absolute inset-8 rounded-full bg-brand/30 blur-3xl" />
-          <img src="/assets/brand/robot-contact.webp" alt="Robot Crubyt" className="relative mx-auto w-full max-w-md drop-shadow-2xl" width={424} height={399} />
+          <img src="/assets/brand/robot-contact.webp" alt="Robot Crubyt" className="relative mx-auto w-full max-w-[360px] drop-shadow-2xl" width={424} height={399} />
         </motion.div>
       </Container>
       <div className="relative border-t border-white/10 bg-white/[0.03] text-white/85">
