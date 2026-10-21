@@ -1,0 +1,10 @@
+{
+  "redirects": [
+    { "source": "/escalar-sin-caos-como-merlin-transformo-su-arquitectura-para-crecer-con-control-en-aws", "destination": "/blog/escalar-sin-caos-como-merlin-transformo-su-arquitectura-para-crecer-con-control-en-aws", "permanent": true },
+    { "source": "/gestion-escalablede-bases-de-datoscriticas-para-bancadigital", "destination": "/blog/gestion-escalablede-bases-de-datoscriticas-para-bancadigital", "permanent": true },
+    { "source": "/automatizacion-de-documentacion-e-infraestructura-con-ia-en-aws", "destination": "/blog/automatizacion-de-documentacion-e-infraestructura-con-ia-en-aws", "permanent": true },
+    { "source": "/category/casos-de-exito", "destination": "/casos-de-exito", "permanent": true },
+    { "source": "/hablemos", "destination": "/contacto", "permanent": true }
+  ],
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+}
