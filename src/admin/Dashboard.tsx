@@ -61,13 +61,13 @@ export default function Dashboard() {
       <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {contacts && (
           <>
-            <Stat icon={Inbox} label="Contactos totales" value={stats.contacts} />
-            <Stat icon={Inbox} label="Sin gestionar (nuevos)" value={stats.nuevos} accent />
+            <Stat icon={Inbox} label="Contactos totales" value={stats.contacts} to="/admin/contactos" />
+            <Stat icon={Inbox} label="Sin gestionar (nuevos)" value={stats.nuevos} accent to="/admin/contactos" />
             <Stat icon={Clock} label="Últimos 7 días" value={stats.week} />
-            <Stat icon={Mail} label="Suscriptores newsletter" value={stats.subscribers} />
+            <Stat icon={Mail} label="Suscriptores newsletter" value={stats.subscribers} to="/admin/newsletter" />
           </>
         )}
-        {admin && <Stat icon={Users} label="Usuarios sin acceso" value={stats.pendingUsers} accent={!!stats.pendingUsers} />}
+        {admin && <Stat icon={Users} label="Usuarios sin acceso" value={stats.pendingUsers} accent={!!stats.pendingUsers} to="/admin/usuarios" />}
       </div>
 
       <div className="mt-8 grid gap-4 lg:grid-cols-2">
@@ -94,14 +94,19 @@ export default function Dashboard() {
   )
 }
 
-function Stat({ icon: Icon, label, value, accent }: { icon: typeof Inbox; label: string; value?: number; accent?: boolean }) {
-  return (
-    <div className="rounded-3xl border border-ink/5 bg-white p-6">
+function Stat({ icon: Icon, label, value, accent, to }: { icon: typeof Inbox; label: string; value?: number; accent?: boolean; to?: string }) {
+  const body = (
+    <>
       <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${accent ? 'bg-brand-50 text-brand' : 'bg-mist text-ink/60'}`}>
         <Icon className="h-5 w-5" />
       </div>
       <p className="mt-4 font-display text-3xl font-bold text-ink tabular-nums">{value ?? '–'}</p>
       <p className="mt-1 text-sm text-ink/55">{label}</p>
-    </div>
+    </>
+  )
+  return to ? (
+    <Link to={to} className="block rounded-3xl border border-ink/5 bg-white p-6 transition hover:border-ink/15 hover:shadow-lg hover:shadow-ink/5">{body}</Link>
+  ) : (
+    <div className="rounded-3xl border border-ink/5 bg-white p-6">{body}</div>
   )
 }

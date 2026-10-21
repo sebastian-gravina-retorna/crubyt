@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { isAdmin, useAuth } from './auth'
 import { PageTitle } from './Dashboard'
 import { cx } from '../components/ui'
+import { downloadCsv } from './csv'
 
 export type Contact = {
   id: string
@@ -45,21 +46,7 @@ const pageName = (u: string | null) => {
   }
 }
 
-const CSV_COLS: (keyof Contact)[] = ['created_at', 'nombres', 'apellidos', 'email', 'telefono', 'rol', 'empresa', 'url_empresa', 'ciudad', 'mensaje', 'page', 'status', 'notes', 'hubspot_contact_id']
-
-function downloadCsv(rows: Contact[]) {
-  const esc = (v: unknown) => {
-    const s = v == null ? '' : String(v)
-    return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
-  }
-  const csv = [CSV_COLS.join(','), ...rows.map((r) => CSV_COLS.map((c) => esc(r[c])).join(','))].join('\n')
-  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' })
-  const a = document.createElement('a')
-  a.href = URL.createObjectURL(blob)
-  a.download = `contactos-crubyt-${new Date().toISOString().slice(0, 10)}.csv`
-  a.click()
-  URL.revokeObjectURL(a.href)
-}
+const CSV_COLS: (keyof Contact & string)[] = ['created_at', 'nombres', 'apellidos', 'email', 'telefono', 'rol', 'empresa', 'url_empresa', 'ciudad', 'mensaje', 'page', 'status', 'notes', 'hubspot_contact_id']
 
 export default function Contacts() {
   const { profile } = useAuth()
@@ -108,7 +95,7 @@ export default function Contacts() {
             <RefreshCw className="h-4 w-4" /> Actualizar
           </button>
           <button
-            onClick={() => downloadCsv(filtered)}
+            onClick={() => downloadCsv(filtered, CSV_COLS, 'contactos-crubyt')}
             disabled={!filtered.length}
             className="flex items-center gap-2 rounded-full bg-ink px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
           >

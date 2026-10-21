@@ -1,12 +1,13 @@
 import { Navigate, NavLink, Route, Routes } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
-import { CalendarDays, Home, LogOut, ShieldCheck, Users, Inbox, Loader2, Lock } from 'lucide-react'
+import { CalendarDays, Home, LogOut, Mail, ShieldCheck, Users, Inbox, Loader2, Lock } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { AuthProvider, canViewContacts, isAdmin, useAuth } from './auth'
 import Login from './Login'
 import Dashboard from './Dashboard'
 import Contacts from './Contacts'
 import UsersPage from './Users'
+import Newsletter from './Newsletter'
 import { cx } from '../components/ui'
 
 function Shell() {
@@ -21,6 +22,7 @@ function Shell() {
   const nav = [
     { to: '/admin', label: 'Inicio', icon: Home, show: true, end: true },
     { to: '/admin/contactos', label: 'Contactos', icon: Inbox, show: canViewContacts(profile) },
+    { to: '/admin/newsletter', label: 'Newsletter', icon: Mail, show: canViewContacts(profile) },
     { to: '/admin/usuarios', label: 'Usuarios y accesos', icon: Users, show: isAdmin(profile) },
   ]
 
@@ -77,6 +79,7 @@ function Shell() {
         <Routes>
           <Route index element={<Dashboard />} />
           <Route path="contactos" element={canViewContacts(profile) ? <Contacts /> : <NoAccess />} />
+          <Route path="newsletter" element={canViewContacts(profile) ? <Newsletter /> : <NoAccess />} />
           <Route path="usuarios" element={isAdmin(profile) ? <UsersPage /> : <NoAccess />} />
           <Route path="*" element={<Navigate to="/admin" replace />} />
         </Routes>
