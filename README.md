@@ -7,12 +7,12 @@ Reemplaza el sitio WordPress/PHP actual: el contenido, logos, colores y seccione
 
 ```bash
 npm install
-cp .env.example .env   # opcional: completar Supabase y endpoint de contacto
+cp .env.example .env   # opcional: completar Supabase y Resend
 npm run dev            # http://localhost:5173
 npm run build          # genera dist/ (sitio estático)
 ```
 
-Sin variables de entorno el sitio funciona igual: el blog usa `src/content/posts.json` y el formulario de contacto abre un email a info@crubyt.com.
+Sin variables de Supabase el blog usa `src/content/posts.json`. El formulario de contacto necesita `RESEND_API_KEY` en Vercel.
 
 ## Estructura
 
@@ -23,6 +23,7 @@ src/
   pages/        Home, ServicePage (plantilla de los 4 servicios), IndustryPage (4 industrias), Nosotros,
                 Cómo trabajamos, Blog/Casos, Post, Eventos, Contacto, Privacidad, 404
   lib/          supabase.ts, posts.ts (Supabase con fallback local), forms.ts (newsletter + contacto)
+api/            contact.ts — Vercel Function que envía el formulario con Resend
 public/assets/  Logos e imágenes optimizados a WebP (brand, clients, partners, badges, team, photos, cases)
 supabase/       migrations/ (tablas + RLS) y seed.sql (posts migrados de WordPress)
 ```
@@ -52,9 +53,19 @@ Tablas:
 
 Si se edita `src/content/posts.json`, regenerar el seed con `npm run seed:sql`.
 
-## Formulario de contacto
+## Formulario de contacto (Resend)
 
-Configurar `VITE_CONTACT_ENDPOINT` con cualquier servicio que reciba un POST JSON (Formspree, HubSpot, n8n, Make…). Sin endpoint, el formulario abre el cliente de correo.
+El formulario hace `POST /api/contact`, una Vercel Function (`api/contact.ts`) que valida los datos y envía el email con [Resend](https://resend.com). La API key vive solo en el servidor.
+
+Variables en Vercel (Settings → Environment Variables), **sin** prefijo `VITE_`:
+
+| Variable | Obligatoria | Descripción |
+| --- | --- | --- |
+| `RESEND_API_KEY` | Sí | API key de Resend |
+| `CONTACT_TO` | No | Destinatarios separados por coma. Default `info@crubyt.com` |
+| `CONTACT_FROM` | No | Remitente, ej. `Crubyt Web <web@crubyt.com>`. Requiere el dominio verificado en Resend → Domains. Mientras no esté verificado se usa `onboarding@resend.dev`, que solo entrega al email dueño de la cuenta de Resend |
+
+El email llega con `reply_to` del visitante, así que se responde directo desde el correo. Para probar en local: `npx vercel dev` (el `npm run dev` de Vite no ejecuta funciones).
 
 ## Deploy
 

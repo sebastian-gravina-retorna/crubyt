@@ -6,5 +6,5 @@
     { "source": "/category/casos-de-exito", "destination": "/casos-de-exito", "permanent": true },
     { "source": "/hablemos", "destination": "/contacto", "permanent": true }
   ],
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "rewrites": [{ "source": "/((?!api/).*)", "destination": "/index.html" }]
 }
